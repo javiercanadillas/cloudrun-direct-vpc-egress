@@ -276,9 +276,9 @@ As shown in the image below, we will run a ping test and HTTP to the private IP 
 ···15:24:23.711908 IP 10.0.1.16.40719 > 10.0.1.4.80: ···
 ```
 
-This indicates that the request originated by the container comes from the 10.0.1.16. The IP has been allocated directly from our `us-central1` subnet `(10.0.1.0/24)`. Therefore, we can conclude that the **Direct VPC Egress** setting works properly, originating packets from our VPC network.
+This indicates that the request originated by the container comes from the 10.0.1.16. This IP has been allocated directly from our `us-central1` subnet `(10.0.1.0/24)`. Therefore, we can conclude that the **Direct VPC Egress** setting works properly, originating packets from our VPC network.
 
-Let's repeat the process with the **Serverless VPC Access Connector** enabled.
+Let's repeat the process with the Cloud Run service that has the **Serverless VPC Access Connector** enabled.
 
 - Run this command to get the URL of the `vpc-access-connector-service  ` Cloud Run service:
 
