@@ -18,7 +18,8 @@ During this lab, we will build the following architecture, which consists of:
 - Cloud Run public service using the VPC Serverless Access Connector in us-central1
 - Compute Engine instance acting as a webserver, where we will use tcpdump to analyze incoming network traffic
 
-![Lab architecture](https://drive.google.com/file/d/1scguhWI3ctMBztVM87eqAVZ762Tvr7zY/view?usp=share_link)
+![Lab architecture](./architecture.gif)
+
 Lab architecture
 ## Prerequisites 
 Before starting make sure you have the following requirements: 
@@ -95,7 +96,7 @@ docker push $REGION-docker.pkg.dev/$PROJECT_ID/cloud-run-lab/network-tester
 
 Let's start by deploying the Direct VPC Egress service first. 
 
-As mentioned, this feature allows the Cloud Run service to get an IP directly on the subnet without the need of having underlying VMs acting as connectors. Since the connectivity to the VPC is direct we have the folllowing benefits:
+As mentioned, this feature allows the Cloud Run service to get an IP directly on the subnet without the need of having underlying VMs acting as connectors. Since the connectivity to the VPC is direct, we have the folllowing benefits:
 
 - **Lower latency and  higher throughput:**  By eliminating the need for connectors, which add extra hops in the network path.
 
@@ -119,7 +120,7 @@ Some of the current limitations are:
 
 - **No support for Cloud NAT** to exit to the internet through the VPC
 
-Execute the follwing comand to deploy Cloud Run with VPC Egress setting. So that requests to private address or internal DNS are routed to the VPC.
+Execute the follwing comand to deploy Cloud Run with VPC Egress setting. Requests to private address or internal DNS are routed to the VPC.
 
 ```
 gcloud beta run deploy direct-vpc-egress-service \
@@ -160,7 +161,7 @@ gcloud compute networks vpc-access connectors create connector-$VPC_NAME \
 --max-instances=5 \
 --machine-type=e2-micro 
 ```
-- Deploy the VPC Network Tester image in a new Cloud Run service using the serverless VPC Accesss Connector, and make it publicly accessible
+- Deploy the VPC Network Tester image in a new Cloud Run service using the serverless VPC Accesss Connector and make it publicly accessible
 
 ```
 gcloud run deploy vpc-access-conector-service \
