@@ -197,6 +197,7 @@ gcloud compute instances create packet-sniffer \
 sudo su -
 apt update
 apt install apache2 -y
+apt install iperf3 -y
 echo "<h1>Hello World</h1>" > /var/www/html/index.html'
 ```
 
@@ -212,7 +213,7 @@ gcloud compute firewall-rules create allow-http-icmp-vpcdirect-to-gce \
   --direction=INGRESS \
   --source-tags=service-direct-egress \
   --target-tags=vpc-producer-server \
-  --rules=tcp:80,icmp \
+  --rules=tcp:80,tcp:5201,icmp \
   --priority=900
 ```
 
