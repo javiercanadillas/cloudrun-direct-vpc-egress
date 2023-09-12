@@ -20,7 +20,7 @@ The following architecture diagram depicts the setup you will be creating:
 - Compute Engine instance acting as a web server, where you will use `tcpdump` to analyze incoming network traffic
 
 <p align="center">
-  <img src="./architecture.gif">
+  <img src="./img/architecture.gif">
   Lab Architecture
 </p>
 
@@ -86,7 +86,7 @@ You will need to build the image and push it to Artifact Registry:
 1. Clone the repository from Github: 
 
 ```bash
-git clone https://github.com/GoogleCloudPlatform/vpc-network-tester && cd vpc-network-tester/cloudrun
+git clone https://github.com/willypalacin/vpc-network-tester && cd vpc-network-tester/cloudrun
 ``` 
 
 2. Create a Docker repository in Artifact Registry to store the image:
@@ -185,6 +185,7 @@ gcloud run deploy vpc-access-connector-service \
 You will now create a VM instance with a private IP `10.0.1.4` in the subnet corresponding to the region you've selected that will: 
 
 - Act as a web server for testing HTTP requests from the two Cloud Run services.
+- Act as iperf server to run network tests
 - Run `tcpdump` to capture network traffic.
 
 ```bash
@@ -198,6 +199,7 @@ sudo su -
 apt update
 apt install apache2 -y
 apt install iperf3 -y
+iperf3 -s &
 echo "<h1>Hello World</h1>" > /var/www/html/index.html'
 ```
 
@@ -300,12 +302,7 @@ As shown in the image below, you will run a ping test and HTTP to the private IP
 09:14:38.096945 IP 10.0.1.4 > 10.0.1.16: ICMP echo reply, id 12, seq 0, length 64
 ```
 
-At the same time, you should see the result of the ping performed by the Cloud Run service appearing in the browser:
 
-<p align="center">
-  <img src="./img/ping-direct-vpc-egress-response.png">
-  Pinging the private IP of the packet sniffer instance through Direct VPC Egress
-</p>
 
 This indicates that the request originated by the container comes from the IP `10.0.1.16`. This IP has been allocated directly from the region subnet `(10.0.1.0/24)`, so this means that the **Direct VPC Egress** is now working, originating packets from your VPC network.
 
@@ -321,11 +318,12 @@ gcloud run services describe vpc-access-connector-service \
 
 8. Open a new browser tab and paste the Cloud Run service URL, and repeat the ping test against the IP `10.0.1.4`, the private address of the packet sniffer instance.
 
-This time, you can observe that the ping test is unsuccessful while the HTTP works fine. Later in the next section,  you will see why (TBD in next section).
+This time, you can observe that the ping test is unsuccessful while the HTTP works fine. This is because [ICMP is not a compatible protocol with Serverless VPC Access Connector](https://cloud.google.com/vpc/docs/serverless-vpc-access?hl=es-419#supported_networking_protocols)
+
 
 <p align="center">
   <img src="./img/ping-vpc-access-connector-service.png">
-  Pinging the private IP of the packet sniffer instance through Direct VPC Egress
+  Ping and curl of the private IP of the packet sniffer instance through Direct VPC Egress
 </p>
 
 9. Go back to the packet sniffer instance running `tcpdump`, you should see something like this for the HTTP test:
@@ -335,6 +333,38 @@ This time, you can observe that the ping test is unsuccessful while the HTTP wor
 ```
 
 In this case, the origin IP making the request does not come from our subnet but from the **Serverless VPC Access Connector** IP range allocated (172.16.1.0/28). As expected, the *connector* acts a a proxy breaking the connection.
+### Testing results
+Now that we have the setup configured, we are going to benchmark the different configurations and run several `iperf` tests to our `packet-sniffer` VM to measure the network throughput using each of the settings.
+
+#### Test 1. Direct VPC Egress vs Serverless VPC Access (2 instances)
+Note: For the first test, the Serverless Access Connector has two instances.
+
+As shown in the image below, the throughput using the Direct VPC Egress Setting is much higher, averaging 1.99 Gbps, compared to 510 Mbps when using the Serverless Access Connector with 2 instances.
+<p align="center">
+  <img src="./img/iperf-test-comparison1.png">
+  Left image shows an iperf test using direct VPC egress while the right uses Serverless Vpc Access connector with two instances
+</p>
+Update the serverless access connector to have more instances and therefore increase the throughtput
+
+```bash
+gcloud beta compute networks vpc-access connectors update "connector-$VPC_NAME" \
+--region=$REGION \
+--min-instances=9 \
+--max-instances=10 \
+--machine-type=e2-micro 
+```
+#### Test 2. Direct VPC Egress vs Serverless VPC Access (9 instances)
+
+As shown below, the throughput increases to an average of 624 Mbps when using 9 instances in the Serverless VPC Access Connector
+
+Also, we can observe that when testing the Serverless VPC Access Connector, which uses VMs under the hood, the results show more variance than the Egress VPC setting, which uses a direct network path.
+
+<p align="left">
+  <img src="./img/iperf-test-comparison2.png">
+  Right image: iperf test using direct VPC egress
+  Left image: iperf test using Serverless VPC Access Connector with 9 instances
+</p>
+
 
 ### Wrapping up
 
