@@ -166,7 +166,7 @@ gcloud compute networks vpc-access connectors create "connector-$VPC_NAME" \
 --region=$REGION \
 --range=172.16.1.0/28 \
 --min-instances=2 \
---max-instances=5 \
+--max-instances=10 \
 --machine-type=e2-micro 
 ```
 
@@ -186,7 +186,8 @@ You will now create a VM instance with a private IP `10.0.1.4` in the subnet cor
 
 - Act as a web server for testing HTTP requests from the two Cloud Run services.
 - Act as iperf server to run network tests
-- Run `tcpdump` to capture network traffic.
+- Run `tcpdump` to capture network traffic
+- Have `hey` load testing tool installed that we will be using later in this lab
 
 ```bash
 gcloud compute instances create packet-sniffer \
@@ -199,6 +200,7 @@ sudo su -
 apt update
 apt install apache2 -y
 apt install iperf3 -y
+apt install hey -y
 iperf3 -s &
 echo "<h1>Hello World</h1>" > /var/www/html/index.html'
 ```
@@ -323,7 +325,7 @@ This time, you can observe that the ping test is unsuccessful while the HTTP wor
 
 <p align="center">
   <img src="./img/ping-vpc-access-connector-service.png">
-  Ping and curl of the private IP of the packet sniffer instance through Direct VPC Egress
+  Ping and curl of the private IP of the packet sniffer instance through Serverless VPC Access Connector
 </p>
 
 9. Go back to the packet sniffer instance running `tcpdump`, you should see something like this for the HTTP test:
@@ -336,35 +338,69 @@ In this case, the origin IP making the request does not come from our subnet but
 ### Testing results
 Now that we have the setup configured, we are going to benchmark the different configurations and run several `iperf` tests to our `packet-sniffer` VM to measure the network throughput using each of the settings.
 
-#### Test 1. Direct VPC Egress vs Serverless VPC Access (2 instances)
+#### Test 1. Direct VPC Egress vs Serverless VPC Access Connector (2 instances)
 Note: For the first test, the Serverless Access Connector has two instances.
 
-As shown in the image below, the throughput using the Direct VPC Egress Setting is much higher, averaging 1.99 Gbps, compared to 510 Mbps when using the Serverless Access Connector with 2 instances.
+As shown in the image below, the throughput using the Direct VPC Egress Setting is much higher, averaging **1.99 Gbps**, compared to **510 Mbps** when using the Serverless Access Connector with 2 instances.
 <p align="center">
   <img src="./img/iperf-test-comparison1.png">
   Left image shows an iperf test using direct VPC egress while the right uses Serverless Vpc Access connector with two instances
 </p>
-Update the serverless access connector to have more instances and therefore increase the throughtput
 
-```bash
-gcloud beta compute networks vpc-access connectors update "connector-$VPC_NAME" \
---region=$REGION \
---min-instances=9 \
---max-instances=10 \
---machine-type=e2-micro 
+
+#### Test 2.  Increasing the number of samples
+
+In this scenario, we will be increasing the duration of the test to assess the autoscaling capabilities of the connector across 4 minutes.
+
 ```
-#### Test 2. Direct VPC Egress vs Serverless VPC Access (9 instances)
+iperf3 -t 240
+```
+As a consequence of the 4-minute stress test, Serverless VPC access connector instances scaled up to 6, as shown below:
 
-As shown below, the throughput increases to an average of 624 Mbps when using 9 instances in the Serverless VPC Access Connector
-
-Also, we can observe that when testing the Serverless VPC Access Connector, which uses VMs under the hood, the results show more variance than the Egress VPC setting, which uses a direct network path.
-
-<p align="left">
+<p align="center">
+  <img src="./img/svp-access-scale.png">
+  Automatic scaling of VPC serverless access connector due to the tests.
+</p>
+<p align="center">
   <img src="./img/iperf-test-comparison2.png">
-  Right image: iperf test using direct VPC egress
-  Left image: iperf test using Serverless VPC Access Connector with 9 instances
+  Direct VPC Egress vs Serverless VPC Access connector with 240 samples.
 </p>
 
+As shown in the image avobe, we can observe that Direct VPC egress achieved similar performance to the previous scenario, with a bitrate of **1.87 Gbps** and a very uniform distribution across the 240 samples. In contrast, Serverless VPC access, even with the scaling feature, exhibited significant variance, with a median bitrate of **376 Mbps.** Due to scaling issues, we detected a slowdown in available bandwidth after 200 requests, which resolves once the Serverless connector has scaled. 
+
+#### Test 3.  Load testing to see the effect on response times
+
+For this scenario, we will be sending traffic from our Packet Sniffer VM to our Cloud Run services. 
+
+The goal is to test if there is a difference in response times due to bandwidth constraints when a large number of requests overload a considerable number of instances using the two different network paths.
+As a consequence of the load, the number of Cloud Run instances will increase.
+
+ We will be using Hey, which is a tiny program that sends load to a web application. 
+
+1. The first step is to configure Cloud Run to allow 5 concurrent requests per instance.
+
+
+```bash
+gcloud run services update direct-vpc-egress-service --concurrency 5
+
+gcloud run services update vpc-access-connector-service --concurrency 5
+```
+
+Hey is automatically installed in the **Packet Sniffer VM.** 
+
+2. Connect via SSH to the **Packet Sniffer VM** and run the following commands:
+
+```bash
+hey -z 100s -c 30 <URL of direct VPC egress service>
+hey -z 100s -c 30 <URL of VPC Serverless Access Connector service> 
+```
+- -c option specifies the number of workers to run concurrently; in this case, it will be 30.
+- -z specifies the duration of the application to send requests. When the duration is reached, the application stops and exits. In this case, it will be running for 100 seconds.
+<p align="center">
+  <img src="./img/hey-test-comparison.png">
+  Load testing response times
+</p>
+As shown in the image above during the test, the number of instances of each one of the Cloud Run services increases as we inject more load. We observe that even though the average response time is similar to that of the direct VPC egress service, there is a long tail of responses that took considerably longer in the Serverless VPC Access service. Nevertheless, we do not regard this test as valid, as there exist other factors beyond networking that influence response delays, such as the duration in milliseconds required for a cold start to initiate the instance. As shown in the image above the distribution of scaled instances is approximately uniform, but not entirely equal.
 
 ### Wrapping up
 
