@@ -1,0 +1,158 @@
+steps:
+- id: 'Ensure TF State bucket'
+  name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+      gsutil ls -b gs://${_GCP_PROJECT_ID}-tfstate 2>&1 > /dev/null || gsutil mb -l $_GCP_REGION gs://${_GCP_PROJECT_ID}-tfstate
+
+- id: "Create artifacts repository"
+  name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  timeout: '600s'
+  allow_failure: true
+  args:
+  - '-c'
+  - |
+      [[ "${_SKIP_INIT}" == "true" ]] && exit 0
+      [[ "${_GET_ARTIFACTS_ONLY}" == "true" ]] && exit 0
+      [[ "${_TF_COMMAND}" == "destroy" ]] && exit 0
+  
+      echo "
+      ********* Creating artifacts repository ${_AR_REPO_NAME} *********"
+
+      echo "Enabling Artifact Registry API..."
+      gcloud services enable artifactregistry.googleapis.com || {
+        error "Failed to enable Artifact Registry API"
+        exit 1
+      }
+
+      # Wait for the API to be enabled, this API enablement is slow and problematic
+      until gcloud services list --enabled | grep artifactregistry.googleapis.com; do
+        echo "Waiting for Artifact Registry API to be enabled..."
+        sleep 2
+      done
+      
+      echo "Creating the artifacts repository..."
+      gcloud artifacts repositories create "${_AR_REPO_NAME}" \
+        --repository-format=docker \
+        --location="${_GCP_REGION}" \
+        --description="Docker repo to store the images"
+
+- id: "Build and push nettest container image"
+  name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  timeout: '600s'
+  args:
+  - '-c'
+  - |
+      [[ "${_SKIP_INIT}" == "true" ]] && exit 0
+      [[ "${_GET_ARTIFACTS_ONLY}" == "true" ]] && exit 0
+      [[ "${_TF_COMMAND}" == "destroy" ]] && exit 0
+  
+      echo "
+      ********* Building and pushing the nettest image *********"
+      gcloud builds submit https://github.com/willypalacin/${_NETTEST_IMAGE_NAME} \
+        -t ${_GCP_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_AR_REPO_NAME}/${_NETTEST_IMAGE_NAME} \
+        --git-source-dir=cloudrun \
+        --git-source-revision=main || {
+          error "Failed to build and push the nettest image"
+          exit 1
+        }
+
+- id: "Setup Artifacts bucket and local directory"
+  name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  timeout: '600s'
+  allow_failure: true
+  args:
+  - '-c'
+  - |
+      gsutil ls -b "gs://${_GCP_PROJECT_ID}-${_ARTIFACTS_SUBDIR}" || {
+        gsutil mb -p "${_GCP_PROJECT_ID}" -l "${_GCP_REGION}" "gs://${_GCP_PROJECT_ID}-${_ARTIFACTS_SUBDIR}" || {
+          error "Failed to create the artifacts GCS bucket"
+          exit 1
+        }
+      }
+      mkdir -p "$_ARTIFACTS_SUBDIR"
+
+- id: 'TF init'
+  name: 'hashicorp/terraform:1.5'
+  entrypoint: 'sh'
+  args:
+  - '-c'
+  - |
+      echo "
+      ********* Applying Terraform init *********"
+
+      WORKDIR="$$(pwd)"
+      cd "$$WORKDIR/${_INFRA_DIR}"
+
+      terraform init --backend-config="bucket=${_GCP_PROJECT_ID}-tfstate"
+
+- id: 'TF apply/destroy'
+  name: 'hashicorp/terraform:1.5'
+  entrypoint: 'sh'
+  args:
+  - '-c'
+  - |
+      [[ "${_GET_ARTIFACTS_ONLY}" == "true" ]] && exit 0
+
+      echo "
+      ********* Applying Terraform $_TF_COMMAND *********"
+      
+      WORKDIR="$$(pwd)"
+      cd "$$WORKDIR/${_INFRA_DIR}"
+  
+      terraform $_TF_COMMAND \
+        --var-file=terraform.tfvars \
+        --var="network_name=${_NETWORK_NAME}" \
+        --var="gcp_region=${_GCP_REGION}" \
+        --var="nettest_image_url=${_GCP_REGION}-docker.pkg.dev/${_GCP_PROJECT_ID}/${_AR_REPO_NAME}/${_NETTEST_IMAGE_NAME}" \
+        --auto-approve || exit 1
+
+- id: "Generate artifacts"
+  name: 'hashicorp/terraform:1.5'
+  entrypoint: 'sh'
+  timeout: '600s'
+  allow_failure: true
+  args:
+  - '-c'
+  - |
+      [[ $_TF_COMMAND == "destroy" ]] && exit 0
+
+      cat <<EOF > "${_ARTIFACTS_SUBDIR}/demo.env"
+      export GCP_PROJECT_ID=$$(terraform output --raw gcp_project_id)
+      export GCP_REGION=$$(terraform output --raw gcp_region)
+      export ZONE=$$(terraform output --raw compute_zone)
+      export CR_DIRECT_URL=$$(terraform output --raw cloudrun_direct_vpc_egress_service_url)
+      export CR_DIRECT_SERVICE_NAME=$$(terraform output --raw cloudrun_direct_vpc_egress_service_name)
+      export CR_CONNECTOR_URL=$$(terraform output --raw cloudrun_vpc_access_connector_service_url)
+      export CR_CONNECTOR_SERVICE_NAME=$$(terraform output --raw cloudrun_vpc_access_connector_service_name)
+      export GCE_VM_NAME=$$(terraform output --raw gce_vm_name)
+      export GCE_VM_IP=$$(terraform output --raw gce_vm_private_ip)
+      EOF
+
+- id: "Copy artifacts to GCS bucket"
+  name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+      [[ $_TF_COMMAND == "destroy" ]] && exit 0
+      gcs_bucket_name="${_GCP_PROJECT_ID}-${_ARTIFACTS_SUBDIR}"
+
+      # Copy artifacts into GCS bucket
+      [[ -d $_ARTIFACTS_SUBDIR ]] && gsutil -m cp -r "${_ARTIFACTS_SUBDIR}/" "gs://$$gcs_bucket_name"
+
+substitutions:
+  _GCP_REGION: 'europe-west1'
+  _TF_COMMAND: 'apply'
+  _ARTIFACTS_SUBDIR: 'artifacts'
+  _SKIP_INIT: 'false'
+  _GET_ARTIFACTS_ONLY: 'false'
+  _INFRA_DIR: 'infra'
+  _NETTEST_IMAGE_NAME: 'vpc-network-tester'
+  _AR_REPO_NAME: 'cloud-run-vpc'
+  _NETWORK_NAME: 'vpc-producer'

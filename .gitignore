@@ -1,1 +1,15 @@
+# Mac OS X Finder
 .DS_Store
+
+# nettest image
+vpc-network-tester/**
+
+# Generated artifacts
+artifacts/**
+
+# Terraform
+**/.terraform/**
+**/terraform.tfvars
+
+# Internal work
+TODO.md
