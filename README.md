@@ -221,13 +221,13 @@ As shown in the image below, the throughput using the Direct VPC Egress Setting 
 
 In this scenario, you will be increasing the duration of the test to assess the autoscaling capabilities of both the Serverless VPC Access Connector and the Direct VPC Egress across 4 minutes of sustained load.
 
-Go back to the browser tab where you opened the `$CR_DIRECT_URL` Cloud Run Service and launch an iPerf test to the `packet-sniffer` VM IP address. This time, increase the duration of the test to 4 minutes by appending the `-t 240` flag in the iPerf command field after the IP address:
+Go back to the browser tab where you opened the `$CR_DIRECT_URL` Cloud Run Service and launch an iPerf test to the `packet-sniffer` VM IP address. Before launching the iPerf test, make sure you refresh the service page to reset the timeout of the Cloud Run service so you've got enough time to perform the test. This time, increase the duration of the test to 4 minutes by appending the `-t 240` flag in the iPerf command field after the IP address:
 
 <p align="center">
   <img src="./docs/img/iperf-with-options.png" width="300px">
 </p>
 
-Do the same thing for the `$CR_CONNECTOR_URL` Cloud Run service, and launch an iPerf test appending the `-t 240` flag after the IP address.
+Do the same thing for the `$CR_CONNECTOR_URL` Cloud Run service, and launch an iPerf test appending the `-t 240` flag after the IP address. As with the previous service, before launching the iPerf test make sure you refresh the service page to reset the timeout of the Cloud Run service so you've got enough time to perform the test.
 
 <p align="center">
   <img src="./docs/img/iperf-test-comparison2.png" width="800px">

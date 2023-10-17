@@ -175,6 +175,7 @@ resource "google_cloud_run_service" "vpc-access-connector-service" {
       containers {
         image = var.nettest_image_url
       }
+      timeout_seconds = "600s"
     }
   }
 }
@@ -219,6 +220,7 @@ resource "google_cloud_run_service" "direct-vpc-egress-service" {
       containers {
         image = var.nettest_image_url
       }
+      timeout_seconds = "600s"
     }
   }
 }
