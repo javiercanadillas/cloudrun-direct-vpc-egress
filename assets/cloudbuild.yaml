@@ -27,12 +27,6 @@ steps:
         error "Failed to enable Artifact Registry API"
         exit 1
       }
-
-      # Wait for the API to be enabled, this API enablement is slow and problematic
-      until gcloud services list --enabled | grep artifactregistry.googleapis.com; do
-        echo "Waiting for Artifact Registry API to be enabled..."
-        sleep 2
-      done
       
       echo "Creating the artifacts repository..."
       gcloud artifacts repositories create "${_AR_REPO_NAME}" \
@@ -86,9 +80,6 @@ steps:
       echo "
       ********* Applying Terraform init *********"
 
-      WORKDIR="$$(pwd)"
-      cd "$$WORKDIR/${_INFRA_DIR}"
-
       terraform init --backend-config="bucket=${_GCP_PROJECT_ID}-tfstate"
 
 - id: 'TF apply/destroy'
@@ -101,9 +92,6 @@ steps:
 
       echo "
       ********* Applying Terraform $_TF_COMMAND *********"
-      
-      WORKDIR="$$(pwd)"
-      cd "$$WORKDIR/${_INFRA_DIR}"
   
       terraform $_TF_COMMAND \
         --var-file=terraform.tfvars \

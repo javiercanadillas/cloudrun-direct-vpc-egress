@@ -12,7 +12,7 @@ set -uo pipefail
 script_name=$(basename "$BASH_SOURCE")
 #shellcheck disable=SC2128
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  hash greadlink || { echo "Please, install greadlink and try again."; exit 1; }
+  hash greadlink || { echo "Please, install greadlink (brew install coreutils) and try again."; exit 1; }
   script_dir=$(dirname "$(greadlink -f "$BASH_SOURCE")")
 else # assume Linux
   script_dir=$(dirname "$(readlink --canonicalize --no-newline "$BASH_SOURCE")")
@@ -75,7 +75,8 @@ check_env() {
 
 ## Set permissions for Cloud Build SA
 set_cloudbuild_iam() {
-  info "Setting the right permissions for Cloud Build..."
+  info "Setting the right permissions for Cloud Build, this may take a while..."
+  local -r iam_propagation_wait_time=60
   
   gcloud services enable \
     cloudbuild.googleapis.com \
@@ -103,6 +104,9 @@ set_cloudbuild_iam() {
       exit 1
     }
   done
+
+  # Wait for the IAM changes to propagate
+  sleep "$iam_propagation_wait_time"
 }
 
 ## Hydrate Terraform configuration
